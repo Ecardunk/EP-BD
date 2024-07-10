@@ -7,6 +7,13 @@ from tkinter import simpledialog
 conn = sqlite3.connect('consultas.db')
 cursor = conn.cursor()
 
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS Especialidade (
+    IdEsp INTEGER PRIMARY KEY,
+    NomeE TEXT,
+    Indice INTEGER
+)
+''')
 
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS Medico (
@@ -14,6 +21,16 @@ CREATE TABLE IF NOT EXISTS Medico (
     NomeM TEXT,
     TelefoneM TEXT,
     Percentual REAL
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS ExerceEsp (
+    CRM TEXT,
+    IdEsp INTEGER,
+    FOREIGN KEY (CRM) REFERENCES Medico(CRM),
+    FOREIGN KEY (IdEsp) REFERENCES Especialidade(IdEsp),
+    PRIMARY KEY (CRM, IdEsp)
 )
 ''')
 
@@ -30,9 +47,17 @@ cursor.execute('''
         ValorPago REAL,
         FormaPagamento TEXT,
         FOREIGN KEY (CRM) REFERENCES Medico(CRM),
+        FOREIGN KEY (IdEsp) REFERENCES Especialidade(IdEsp),
         UNIQUE (CRM, Data, HoraInicCon, HoraFimCon)
     )
 ''')
+# Rodar 1 vez
+cursor.executescript("""
+INSERT INTO Especialidade (IdEsp, NomeE, Indice) VALUES
+(1, 'Cardiologia', 101),
+(2, 'Dermatologia', 102),
+(3, 'Gastroenterologia', 103);
+""")
 
 cursor.executescript("""
 -- Populando com os Médicos
@@ -41,6 +66,19 @@ INSERT INTO Medico (CRM, NomeM, TelefoneM, Percentual) VALUES
 ('13123', 'Dr. Atende Tudo Da Silva', '24999-012', 5.0),
 ('13694', 'Dr. Dermatologista Pereira', '268-128416', 15.0),
 ('67890', 'Dr. Kildare', '555-5678', 15.0);
+""")
+
+cursor.executescript("""
+-- Populando relação ExerceEsp
+INSERT INTO ExerceEsp (CRM, IdEsp) VALUES
+('12345', 1),
+('12345', 2),
+('13123', 1),
+('13123', 2),
+('13123', 3),
+('13694', 2),
+('67890', 2),
+('67890', 3);
 """)
 
 
@@ -59,10 +97,21 @@ def crm_existe(CRM):
     conn.close()
     return existe
 
+def especialidade_existe(CRM, IdEsp):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute('SELECT 1 FROM ExerceEsp WHERE CRM = ? AND IdEsp = ?', (CRM, IdEsp))
+    existe = cursor.fetchone() is not None
+    conn.close()
+    return existe
 
 def adicionar_consulta(CRM, IdEsp, IdPac, Data, HoraInicCon, HoraFimCon, Pagou, ValorPago, FormaPagamento):
     if not crm_existe(CRM):
         messagebox.showwarning("Erro", "CRM não encontrado na relação de médicos")
+        return
+    
+    if not especialidade_existe(CRM, IdEsp):
+        messagebox.showwarning("Erro", "O médico não atende a especialidade fornecida")
         return
     
     conn = conectar()
@@ -82,15 +131,34 @@ def adicionar_consulta(CRM, IdEsp, IdPac, Data, HoraInicCon, HoraFimCon, Pagou, 
 def listar_consultas():
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM consulta')
+    cursor.execute('SELECT DISTINCT * FROM consulta')
     consultas = cursor.fetchall()
     conn.close()
     return consultas
+
+
+def listar_medicos_e_especialidades():
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT Medico.NomeM, Medico.CRM, Especialidade.NomeE, Especialidade.IdEsp
+        FROM Medico
+        JOIN ExerceEsp ON Medico.CRM = ExerceEsp.CRM
+        JOIN Especialidade ON ExerceEsp.IdEsp = Especialidade.IdEsp
+    ''')
+    resultados = cursor.fetchall()
+    conn.close()
+    return resultados
+
 
 def atualizar_consulta(idCon, CRM, IdEsp, IdPac, Data, HoraInicCon, HoraFimCon, Pagou, ValorPago, FormaPagamento):
 
     if not crm_existe(CRM):
         messagebox.showwarning("Erro", "CRM não encontrado na tabela de médicos")
+        return
+    
+    if not especialidade_existe(CRM, IdEsp):
+        messagebox.showwarning("Erro", "O médico não atende a especialidade fornecida")
         return
 
     conn = conectar()
@@ -103,6 +171,8 @@ def atualizar_consulta(idCon, CRM, IdEsp, IdPac, Data, HoraInicCon, HoraFimCon, 
     SET CRM = ?, IdEsp = ?, IdPac = ?, Data = ?, HoraInicCon = ?, HoraFimCon = ?, Pagou = ?, ValorPago = ?, FormaPagamento = ?
     WHERE idCon = ?
     ''', (CRM, IdEsp, IdPac, Data, HoraInicCon, HoraFimCon, Pagou, ValorPago, FormaPagamento, idCon))
+
+    messagebox.showinfo("Sucesso", "Consulta atualizada com sucesso")
     conn.commit()
     conn.close()
 
@@ -138,7 +208,6 @@ def adicionar():
     if CRM and IdEsp and IdPac and Data and HoraInicCon and HoraFimCon and Pagou and ValorPago and FormaPagamento:
         adicionar_consulta(CRM, IdEsp, IdPac, Data, HoraInicCon, HoraFimCon, Pagou, ValorPago, FormaPagamento)
         listar()
-        #messagebox.showinfo("Sucesso", "Consulta adicionada com sucesso")
     else:
         messagebox.showwarning("Erro", "Por favor, preencha todos os campos obrigatórios")
 
@@ -164,7 +233,6 @@ def atualizar():
         if idCon and CRM and IdEsp and IdPac and Data and HoraInicCon and HoraFimCon and Pagou and ValorPago and FormaPagamento:
             atualizar_consulta(idCon, CRM, IdEsp, IdPac, Data, HoraInicCon, HoraFimCon, Pagou, ValorPago, FormaPagamento)
             listar()
-            messagebox.showinfo("Sucesso", "Consulta atualizada com sucesso")
         else:
             messagebox.showwarning("Erro", "Por favor, preencha todos os campos obrigatórios")
     except ValueError:
@@ -188,6 +256,13 @@ def pesquisar():
             lista_consultas.insert(tk.END, consulta)
     else:
         messagebox.showwarning("Erro", "Por favor, insira o CRM do médico")
+
+def listar_medicos_especialidades():
+    resultados = listar_medicos_e_especialidades()
+    lista_medicos.delete(0, tk.END)
+    for resultado in resultados:
+        lista_medicos.insert(tk.END, f"Médico: {resultado[0]} (CRM: {resultado[1]}) - Especialidade: {resultado[2]} (ID: {resultado[3]})")
+
 # Interface Gráfica
 root = tk.Tk()
 root.title("Gerenciador de Consultas")
@@ -233,10 +308,16 @@ tk.Button(root, text="Adicionar Consulta", command=adicionar).grid(row=9, column
 lista_consultas = tk.Listbox(root, width=50)
 lista_consultas.grid(row=10, column=0, columnspan=2)
 
-tk.Button(root, text="Atualizar Consulta", command=atualizar).grid(row=11, column=0, columnspan=2)
-tk.Button(root, text="Excluir Consulta", command=excluir).grid(row=12, column=0, columnspan=2)
+tk.Button(root, text="Atualizar Consulta", command=atualizar).grid(row=9, column=4, columnspan=2)
+tk.Button(root, text="Excluir Consulta", command=excluir).grid(row=9, column=8, columnspan=2)
 tk.Button(root, text="Listar Consultas por Médico", command=pesquisar).grid(row=14, column=0, columnspan=2)
 tk.Button(root, text="Listar Todas as Consultas", command=listar).grid(row=16, column=0, columnspan=2)
 listar()
+
+tk.Button(root, text="Listar Médicos e Especialidades", command=listar_medicos_especialidades).grid(row=18, column=0, columnspan=2)
+
+lista_medicos = tk.Listbox(root, width=100)
+lista_medicos.grid(row=20, column=0, columnspan=2)
+
 
 root.mainloop()
